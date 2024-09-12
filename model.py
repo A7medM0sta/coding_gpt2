@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from transformers import GPT2LMHeadModel
+
 
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
@@ -15,6 +17,7 @@ class LayerNorm(nn.Module):
 
     def forward(self, input):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
+
 
 class CausalSelfAttention(nn.Module):
     """
@@ -118,6 +121,8 @@ class MLP(nn.Module):
         x = self.c_proj(x)
         x = self.dropout(x)
         return x
+    
+
 
 class Block(nn.Module):
     """
@@ -154,6 +159,7 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
+
     def forward(self, x):
         """
         Performs a forward pass through the Block.
@@ -167,6 +173,9 @@ class Block(nn.Module):
         x = x + self.attn(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return x
+    
+
+
 
 @dataclass
 class GPTConfig:
@@ -211,6 +220,7 @@ class GPT(nn.Module):
     - _init_weights(self, module): Initializes the weights of the model.
     """
 
+
     def __init__(self, config):
         super().__init__()
         assert config.vocab_size is not None
@@ -241,6 +251,7 @@ class GPT(nn.Module):
         # report number of parameters
         print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
 
+
     def get_num_params(self, non_embedding=True):
         """
         Return the number of parameters in the model.
@@ -252,6 +263,7 @@ class GPT(nn.Module):
         if non_embedding:
             n_params -= self.transformer.wpe.weight.numel()
         return n_params
+    
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -260,6 +272,7 @@ class GPT(nn.Module):
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
 
     def forward(self, idx, targets=None):
         device = idx.device
@@ -285,6 +298,7 @@ class GPT(nn.Module):
             loss = None
 
         return logits, loss
+    
 
     def crop_block_size(self, block_size):
         # model surgery to decrease the block size if necessary
@@ -296,6 +310,11 @@ class GPT(nn.Module):
         for block in self.transformer.h:
             if hasattr(block.attn, 'bias'):
                 block.attn.bias = block.attn.bias[:,:,:block_size,:block_size]
+
+
+
+
+
 
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):
@@ -313,7 +332,6 @@ class GPT(nn.Module):
         override_args = override_args or {} # default to empty dict
         # only dropout can be overridden see more notes below
         assert all(k == 'dropout' for k in override_args)
-        from transformers import GPT2LMHeadModel
         print("loading weights from pretrained gpt: %s" % model_type)
 
         # n_layer, n_head and n_embd are determined from model_type
@@ -363,6 +381,8 @@ class GPT(nn.Module):
                     sd[k].copy_(sd_hf[k])
 
         return model
+    
+
 
     def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
         """
@@ -401,6 +421,8 @@ class GPT(nn.Module):
         print(f"using fused AdamW: {use_fused}")
 
         return optimizer
+    
+
 
     def estimate_mfu(self, fwdbwd_per_iter, dt):
         """
@@ -429,6 +451,8 @@ class GPT(nn.Module):
         flops_promised = 312e12 # A100 GPU bfloat16 peak flops is 312 TFLOPS
         mfu = flops_achieved / flops_promised
         return mfu
+
+
 
     @torch.no_grad()
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
