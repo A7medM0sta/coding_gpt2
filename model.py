@@ -1,7 +1,6 @@
 import math
 import inspect
 from dataclasses import dataclass
-
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -18,6 +17,27 @@ class LayerNorm(nn.Module):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
 class CausalSelfAttention(nn.Module):
+    """
+    Causal Self-Attention layer for the transformer model.
+
+    This layer performs multi-head self-attention with a causal mask to ensure that each position
+    in the sequence can only attend to previous positions. It supports both the standard attention
+    mechanism and the more efficient Flash Attention mechanism if available in the PyTorch version.
+
+    Attributes:
+        c_attn (nn.Linear): Linear layer for computing query, key, and value projections.
+        c_proj (nn.Linear): Linear layer for the output projection.
+        attn_dropout (nn.Dropout): Dropout layer for attention weights.
+        resid_dropout (nn.Dropout): Dropout layer for the output projection.
+        n_head (int): Number of attention heads.
+        n_embd (int): Dimensionality of the embeddings.
+        dropout (float): Dropout probability.
+        flash (bool): Flag indicating whether Flash Attention is supported.
+        bias (torch.Tensor): Causal mask for standard attention (only used if Flash Attention is not supported).
+
+    Methods:
+        forward(x): Performs the forward pass of the Causal Self-Attention layer.
+    """
 
     def __init__(self, config):
         super().__init__()
