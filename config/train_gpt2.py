@@ -1,6 +1,7 @@
 # config for training GPT-2 (124M) down to very nice loss of ~2.85 on 1 node of 8X A100 40GB
 # launch as the following (e.g. in a screen session) and wait ~5 days:
 # $ torchrun --standalone --nproc_per_node=8 train.py config/train_gpt2.py
+import torch
 
 wandb_log = True
 wandb_project = 'owt'
@@ -23,3 +24,12 @@ log_interval = 10
 
 # weight decay
 weight_decay = 1e-1
+
+
+## part of define the mps in pytorch for training
+device = "cpu"
+if torch.cuda.is_available():
+    device="cuda"
+elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    device="mps"
+print(f"using device:{device}")
