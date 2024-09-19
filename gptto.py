@@ -5,11 +5,37 @@ import inspect
 from dataclasses import dataclass
 import torch
 import torch.nn as nn
+import tiktoken
+import numpy as np
 from torch.nn import functional as F
-from hellaswag import render_example, iterate_examples
+from hellaswag import render_example, iterate_examples  # dataset
+
+
+
 
 class CausalSelfAttention(nn.Module):
-
+    """
+    This class implements the Causal Self-Attention mechanism used in transformer models.
+    
+    Attributes:
+        c_attn (nn.Linear): Linear layer to project the input embeddings to query, key, and value vectors.
+        c_proj (nn.Linear): Linear layer to project the output of the attention mechanism back to the embedding dimension.
+        n_head (int): Number of attention heads.
+        n_embd (int): Embedding dimension.
+    
+    Methods:
+        __init__(config):
+            Initializes the CausalSelfAttention module with the given configuration.
+            Args:
+                config: Configuration object containing the model hyperparameters.
+        
+        forward(x):
+            Performs the forward pass of the Causal Self-Attention mechanism.
+            Args:
+                x: Input tensor of shape (B, T, C) where B is the batch size, T is the sequence length, and C is the embedding dimension.
+            Returns:
+                y: Output tensor of shape (B, T, C) after applying the attention mechanism and projection.
+    """
     def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
@@ -33,7 +59,29 @@ class CausalSelfAttention(nn.Module):
 
 
 
+
 class MLP(nn.Module):
+    """
+    This class implements a Multi-Layer Perceptron (MLP) used in transformer models.
+    
+    Attributes:
+        c_fc (nn.Linear): Linear layer to project the input embeddings to a higher dimension.
+        gelu (nn.GELU): GELU activation function with tanh approximation.
+        c_proj (nn.Linear): Linear layer to project the higher dimension embeddings back to the original embedding dimension.
+    
+    Methods:
+        __init__(config):
+            Initializes the MLP module with the given configuration.
+            Args:
+                config: Configuration object containing the model hyperparameters.
+        
+        forward(x):
+            Performs the forward pass of the MLP.
+            Args:
+                x: Input tensor of shape (B, T, C) where B is the batch size, T is the sequence length, and C is the embedding dimension.
+            Returns:
+                x: Output tensor of shape (B, T, C) after applying the MLP layers and activation function.
+    """
 
     def __init__(self, config):
         super().__init__()
@@ -48,7 +96,39 @@ class MLP(nn.Module):
         x = self.c_proj(x)
         return x
 
+
+
+
 class Block(nn.Module):
+    """
+    This class represents a single block in the transformer architecture. It is a fundamental building block of the transformer model, responsible for processing input embeddings and generating output embeddings.
+
+    The Block class consists of three main components:
+    1. Layer Normalization (LN): This is applied to the input embeddings to normalize them. Layer normalization is a technique used to normalize the inputs to a layer for each training example, which can help stabilize the training process.
+    2. Causal Self-Attention (Attn): This is the core component of the transformer architecture. It allows the model to attend to different parts of the input sequence simultaneously and weigh their importance. The 'causal' aspect means that the model only attends to the tokens that come before the current token in the sequence.
+    3. Multi-Layer Perceptron (MLP): This is a fully connected feed-forward network that processes the output of the self-attention layer. It consists of two linear layers with a GELU activation function in between.
+
+    The forward pass of the Block class involves applying these components sequentially. First, layer normalization is applied to the input embeddings. Then, the normalized embeddings are passed through the causal self-attention layer. The output of the self-attention layer is then passed through the MLP to generate the final output embeddings of the block.
+
+    Attributes:
+        ln_1 (nn.LayerNorm): Layer normalization module applied to the input embeddings before the self-attention layer.
+        attn (CausalSelfAttention): Causal self-attention module that processes the normalized input embeddings.
+        ln_2 (nn.LayerNorm): Layer normalization module applied to the output of the self-attention layer before the MLP.
+        mlp (MLP): Multi-layer perceptron module that processes the output of the layer normalization module.
+
+    Methods:
+        __init__(config):
+            Initializes the Block module with the given configuration.
+            Args:
+                config: Configuration object containing the model hyperparameters.
+        
+        forward(x):
+            Performs the forward pass of the Block.
+            Args:
+                x: Input tensor of shape (B, T, C) where B is the batch size, T is the sequence length, and C is the embedding dimension.
+            Returns:
+                x: Output tensor of shape (B, T, C) after applying the Block's components.
+    """
 
     def __init__(self, config):
         super().__init__()
@@ -62,14 +142,30 @@ class Block(nn.Module):
         x = x + self.mlp(self.ln_2(x))
         return x
 
+
+
+
+
+
 @dataclass
 class GPTConfig:
-    block_size: int = 1024 # max sequence length
-    vocab_size: int = 50257 # number of tokens: 50,000 BPE merges + 256 bytes tokens + 1 <|endoftext|> token
-    n_layer: int = 12 # number of layers
-    n_head: int = 12 # number of heads
-    n_embd: int = 768 # embedding dimension
+    """
+    This class represents the configuration for the GPT model. It defines the key hyperparameters that control the architecture and behavior of the model.
 
+    Attributes:
+        block_size (int): The maximum sequence length that the model can process. This determines the size of the input embeddings and the maximum length of the sequence that can be fed into the model.
+        vocab_size (int): The number of unique tokens in the vocabulary. This includes the number of BPE merges, bytes tokens, and a special <|endoftext|> token that marks the end of the text.
+        n_layer (int): The number of layers in the transformer model. Each layer consists of a self-attention mechanism and a feed-forward network. Increasing the number of layers can improve the model's ability to capture long-range dependencies but also increases the computational cost.
+        n_head (int): The number of attention heads in the self-attention mechanism. Each attention head computes a weighted sum of the input embeddings, allowing the model to attend to different parts of the input sequence simultaneously.
+        n_embd (int): The embedding dimension, which determines the size of the embedding vectors used to represent each token in the input sequence. A larger embedding dimension can capture more nuanced relationships between tokens but also increases the computational cost.
+
+    The default values for these attributes are set based on the original GPT model architecture and can be adjusted to suit specific use cases or experiment with different configurations.
+    """
+    block_size: int = 1024
+    vocab_size: int = 50257
+    n_layer: int = 12
+    n_head: int = 12
+    n_embd: int = 768
 class GPT(nn.Module):
 
     def __init__(self, config):
@@ -127,8 +223,6 @@ class GPT(nn.Module):
         assert model_type in {'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}
         from transformers import GPT2LMHeadModel
         print("loading weights from pretrained gpt: %s" % model_type)
-
-        # n_layer, n_head and n_embd are determined from model_type
         config_args = {
             'gpt2':         dict(n_layer=12, n_head=12, n_embd=768),  # 124M params
             'gpt2-medium':  dict(n_layer=24, n_head=16, n_embd=1024), # 350M params
@@ -137,33 +231,24 @@ class GPT(nn.Module):
         }[model_type]
         config_args['vocab_size'] = 50257 # always 50257 for GPT model checkpoints
         config_args['block_size'] = 1024 # always 1024 for GPT model checkpoints
-        # create a from-scratch initialized minGPT model
         config = GPTConfig(**config_args)
         model = GPT(config)
         sd = model.state_dict()
         sd_keys = sd.keys()
         sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')] # discard this mask / buffer, not a param
-
-        # init a huggingface/transformers model
         model_hf = GPT2LMHeadModel.from_pretrained(model_type)
         sd_hf = model_hf.state_dict()
-
-        # copy while ensuring all of the parameters are aligned and match in names and shapes
         sd_keys_hf = sd_hf.keys()
         sd_keys_hf = [k for k in sd_keys_hf if not k.endswith('.attn.masked_bias')] # ignore these, just a buffer
         sd_keys_hf = [k for k in sd_keys_hf if not k.endswith('.attn.bias')] # same, just the mask (buffer)
         transposed = ['attn.c_attn.weight', 'attn.c_proj.weight', 'mlp.c_fc.weight', 'mlp.c_proj.weight']
-        # basically the openai checkpoints use a "Conv1D" module, but we only want to use a vanilla Linear
-        # this means that we have to transpose these weights when we import them
         assert len(sd_keys_hf) == len(sd_keys), f"mismatched keys: {len(sd_keys_hf)} != {len(sd_keys)}"
         for k in sd_keys_hf:
             if any(k.endswith(w) for w in transposed):
-                # special treatment for the Conv1D weights we need to transpose
                 assert sd_hf[k].shape[::-1] == sd[k].shape
                 with torch.no_grad():
                     sd[k].copy_(sd_hf[k].t())
             else:
-                # vanilla copy over the other parameters
                 assert sd_hf[k].shape == sd[k].shape
                 with torch.no_grad():
                     sd[k].copy_(sd_hf[k])
@@ -171,11 +256,8 @@ class GPT(nn.Module):
         return model
 
     def configure_optimizers(self, weight_decay, learning_rate, device_type):
-        # start with all of the candidate parameters (that require grad)
         param_dict = {pn: p for pn, p in self.named_parameters()}
         param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
-        # create optim groups. Any parameters that is 2D will be weight decayed, otherwise no.
-        # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
         decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
         nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
         optim_groups = [
@@ -187,7 +269,6 @@ class GPT(nn.Module):
         if master_process:
             print(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
             print(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
-        # Create AdamW optimizer and use the fused version if it is available
         fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
         use_fused = fused_available and device_type == "cuda"
         if master_process:
@@ -195,25 +276,67 @@ class GPT(nn.Module):
         optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8, fused=use_fused)
         return optimizer
 
-# -----------------------------------------------------------------------------
-import tiktoken
-import numpy as np
+
+
 
 def load_tokens(filename):
+    """
+    Loads tokens from a numpy file and converts them to a PyTorch tensor.
+
+    Args:
+        filename (str): The path to the numpy file containing the tokens.
+
+    Returns:
+        torch.Tensor: A tensor of type torch.long containing the loaded tokens.
+    """
     npt = np.load(filename)
-    npt = npt.astype(np.int32) # added after video
-    ptt = torch.tensor(npt, dtype=torch.long)
+    npt = npt.astype(np.int32) # Ensure the numpy array is of type int32
+    ptt = torch.tensor(npt, dtype=torch.long) # Convert numpy array to PyTorch tensor of type long
     return ptt
 
+
+
+
 class DataLoaderLite:
+    """
+    A lightweight data loader for loading and processing batches of tokens from a dataset.
+
+    Attributes:
+        B (int): Batch size.
+        T (int): Sequence length.
+        process_rank (int): Rank of the current process.
+        num_processes (int): Total number of processes.
+        shards (list): List of file paths to the shards of the dataset.
+        current_shard (int): Index of the current shard being processed.
+        tokens (torch.Tensor): Tensor of tokens loaded from the current shard.
+        current_position (int): Current position in the tokens tensor.
+
+    Methods:
+        __init__(B, T, process_rank, num_processes, split):
+            Initializes the DataLoaderLite with the given parameters and loads the shards for the specified split.
+            Args:
+                B (int): Batch size.
+                T (int): Sequence length.
+                process_rank (int): Rank of the current process.
+                num_processes (int): Total number of processes.
+                split (str): Dataset split to load ('train' or 'val').
+
+        reset():
+            Resets the DataLoaderLite to the initial state, loading tokens from the first shard and setting the current position.
+
+        next_batch():
+            Loads the next batch of tokens from the current shard and advances the current position. If the end of the current shard is reached, it moves to the next shard.
+            Returns:
+                x (torch.Tensor): Batch of input tokens.
+                y (torch.Tensor): Batch of target tokens.
+    """
+
     def __init__(self, B, T, process_rank, num_processes, split):
         self.B = B
         self.T = T
         self.process_rank = process_rank
         self.num_processes = num_processes
         assert split in {'train', 'val'}
-
-        # get the shard filenames
         data_root = "edu_fineweb10B"
         shards = os.listdir(data_root)
         shards = [s for s in shards if split in s]
@@ -226,7 +349,6 @@ class DataLoaderLite:
         self.reset()
 
     def reset(self):
-        # state, init at shard zero
         self.current_shard = 0
         self.tokens = load_tokens(self.shards[self.current_shard])
         self.current_position = self.B * self.T * self.process_rank
@@ -236,20 +358,29 @@ class DataLoaderLite:
         buf = self.tokens[self.current_position : self.current_position+B*T+1]
         x = (buf[:-1]).view(B, T) # inputs
         y = (buf[1:]).view(B, T) # targets
-        # advance the position in the tensor
         self.current_position += B * T * self.num_processes
-        # if loading the next batch would be out of bounds, advance to next shard
         if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
             self.current_shard = (self.current_shard + 1) % len(self.shards)
             self.tokens = load_tokens(self.shards[self.current_shard])
             self.current_position = B * T * self.process_rank
         return x, y
 
-# -----------------------------------------------------------------------------
-# helper function for HellaSwag eval
-# takes tokens, mask, and logits, returns the index of the completion with the lowest loss
+
 
 def get_most_likely_row(tokens, mask, logits):
+    """
+    This function evaluates the autoregressive loss at all positions, 
+    calculates the average loss for the completion region, and returns 
+    the most likely row.
+
+    Args:
+        tokens (torch.Tensor): The input tokens.
+        mask (torch.Tensor): The mask for the tokens.
+        logits (torch.Tensor): The logits for the tokens.
+
+    Returns:
+        int: The index of the most likely row.
+    """
     # evaluate the autoregressive loss at all positions
     shift_logits = (logits[..., :-1, :]).contiguous()
     shift_tokens = (tokens[..., 1:]).contiguous()
@@ -267,7 +398,6 @@ def get_most_likely_row(tokens, mask, logits):
     # the one with the lowest loss should be the most likely
     pred_norm = avg_loss.argmin().item()
     return pred_norm
-
 # -----------------------------------------------------------------------------
 # simple launch:
 # python train_gpt2.py
